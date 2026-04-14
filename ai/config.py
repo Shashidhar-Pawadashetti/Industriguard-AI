@@ -38,8 +38,8 @@ VIDEO_FILE_PATH = "test_video.mp4"
 # ── Backend Settings ──────────────────────────────────────
 BACKEND_URL = "http://localhost:5000"
 
-# ── AI Model Settings ────────────────────────────────────
-MODEL_PATH = "yolo11n.pt"  # Replace with PPE model later
+# ── AI Model Settings ──────────────────────────────────────
+MODEL_PATH = "best.pt"  # YOLO11s PPE v3 — trained model (mAP50: 0.772)
 
 # ── File Paths ────────────────────────────────────────────
 EMPLOYEES_FILE = "../employee_data/employees.json"
