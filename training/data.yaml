@@ -1,0 +1,9 @@
+names:
+  0: helmet
+  1: no_helmet
+  2: safety_vest
+  3: no_vest
+nc: 4
+path: C:/industriguard_training/combined
+train: train/images
+val: val/images
