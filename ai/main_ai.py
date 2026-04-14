@@ -313,48 +313,40 @@ while True:
                     f"Safety: {safety_pct}%",
                 ]
 
-            ty = y1 - 10
-            for line in reversed(lines):
-                (tw, th), _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
-                ty = max(20, ty)
-                cv2.rectangle(frame, (x1, ty - th - 8), (x1 + tw + 10, ty + 4), (0, 0, 0), -1)
-                cv2.putText(frame, line, (x1 + 5, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-                ty -= (th + 12)
+            # Draw worker info exactly once, anchored to the right side of the bbox.
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            scale = 0.52
+            thickness = 2
+            pad_x = 8
+            pad_y = 6
+            line_gap = 6
 
-        # Keep recent worker information visible even if the person temporarily
-        # leaves frame or tracking/QR drops for a moment.
-        active_recent_workers = []
-        for emp_id, info in list(recent_workers.items()):
-            if (now - info["last_seen"]) <= WORKER_INFO_PERSIST_SECONDS:
-                active_recent_workers.append(info)
-            else:
-                recent_workers.pop(emp_id, None)
+            sizes = [cv2.getTextSize(line, font, scale, thickness)[0] for line in lines]
+            text_w = max((sz[0] for sz in sizes), default=0)
+            text_h = max((sz[1] for sz in sizes), default=0)
+            box_w = text_w + pad_x * 2
+            box_h = (text_h * len(lines)) + (line_gap * (len(lines) - 1)) + pad_y * 2
 
-        panel_x = max(10, w - 360)
-        panel_y = 60
-        card_h = 72
-        for i, info in enumerate(sorted(active_recent_workers, key=lambda item: item["last_seen"], reverse=True)[:4]):
-            y1 = panel_y + (i * (card_h + 8))
-            y2 = y1 + card_h
-            card_color = (20, 90, 20) if info["status"] == "READY" else (90, 20, 20)
-            age = max(0, WORKER_INFO_PERSIST_SECONDS - int(now - info["last_seen"]))
+            # Preferred placement: immediately to the right of the bbox.
+            bx1 = x2 + 10
+            by1 = y1
 
-            cv2.rectangle(frame, (panel_x, y1), (w - 10, y2), (15, 15, 15), -1)
-            cv2.rectangle(frame, (panel_x, y1), (w - 10, y2), card_color, 2)
-            cv2.putText(frame, f"{info['name']} ({info['id']})", (panel_x + 10, y1 + 22),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-            cv2.putText(frame, f"{info['department']} | {info['role']}", (panel_x + 10, y1 + 42),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 220), 1)
-            cv2.putText(
-                frame,
-                f"Helmet: {'Yes' if info['has_helmet'] else 'No'}  Vest: {'Yes' if info['has_vest'] else 'No'}  "
-                f"Safety: {info['safety_pct']}%  {info['status']}  [{age}s]",
-                (panel_x + 10, y1 + 62),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.42,
-                (220, 220, 220),
-                1,
-            )
+            # Clamp inside frame (fallback to left side if needed).
+            if bx1 + box_w > (w - 10):
+                bx1 = max(10, x1 - 10 - box_w)
+            by1 = min(max(10, by1), max(10, h - 10 - box_h))
+            bx2 = bx1 + box_w
+            by2 = by1 + box_h
+
+            # Background + border (border color matches bbox color).
+            cv2.rectangle(frame, (bx1, by1), (bx2, by2), (0, 0, 0), -1)
+            cv2.rectangle(frame, (bx1, by1), (bx2, by2), color, 2)
+
+            # Text lines (top-to-bottom).
+            ty = by1 + pad_y + text_h
+            for line in lines:
+                cv2.putText(frame, line, (bx1 + pad_x, ty), font, scale, (255, 255, 255), thickness)
+                ty += text_h + line_gap
 
         # Also draw QR overlays (helpful for debugging association)
         frame = scanner.draw_qr_overlay_multi(frame, qr_results)
