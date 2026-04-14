@@ -11,7 +11,9 @@
 #   "webcam"       → Laptop built-in webcam
 #   "video"        → Recorded video file (for testing)
 
-CAMERA_MODE = "usb_mobile"
+# Default to laptop webcam so the app works out-of-the-box.
+# Switch to "usb_mobile" / "usb_tether" / "wifi" when using a phone camera.
+CAMERA_MODE = "webcam"
 
 # ── USB Mobile Settings (DroidCam / Iriun / Camo) ────────
 # When you connect your phone via USB with DroidCam or Iriun,
@@ -56,6 +58,9 @@ INFERENCE_IMG_SIZE = 480
 
 # Turn off extra detector box drawing (saves CPU/GPU and avoids clutter)
 DRAW_DETECTOR_BOXES = False
+
+# Keep worker info visible on screen for a few seconds after brief detection dropouts.
+WORKER_INFO_PERSIST_SECONDS = 5
 
 # ── Logging ────────────────────────────────────────────────
 # Reduce terminal spam for better performance/readability.

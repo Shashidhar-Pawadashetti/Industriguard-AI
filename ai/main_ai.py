@@ -14,7 +14,8 @@ from config import (
     USE_BYTE_TRACK,
     INFERENCE_EVERY_N_FRAMES,
     INFERENCE_IMG_SIZE,
-    DRAW_DETECTOR_BOXES
+    DRAW_DETECTOR_BOXES,
+    WORKER_INFO_PERSIST_SECONDS
 )
 
 from camera_feed    import CameraFeed
@@ -37,10 +38,10 @@ reporter = ExcelReporter(report_path=REPORT_PATH)
 reporter_backend = Reporter(backend_url=BACKEND_URL)
 
 # Tracking state for stable labels (used when USE_BYTE_TRACK=True)
-# Employee labels persist while the person is visible; they are removed as soon
-# as the tracked person disappears from the frame.
+# Employee labels persist briefly even if tracking/QR drops for a few frames.
 track_employee = {}     # track_id -> emp_dict (sticky while track is alive)
 track_last_seen = {}    # track_id -> time.time()
+recent_workers = {}     # emp_id -> latest overlay/report info
 
 # Backend/Excel reporting de-dupe (multi-person mode)
 MULTI_REPORT_MIN_INTERVAL_SECONDS = 5.0
@@ -150,7 +151,8 @@ while True:
         persons_compliance = cached_persons_compliance
         now = time.time()
 
-        # Mark currently visible tracks and immediately forget those that disappeared
+        # Mark currently visible tracks and keep them alive for a short grace period
+        # so worker info does not disappear immediately on brief dropouts.
         visible_track_ids = set()
         for pc in (persons_compliance or []):
             tid = pc["person_det"].get("track_id")
@@ -160,7 +162,7 @@ while True:
                 track_last_seen[tid] = now
 
         for tid in list(track_last_seen.keys()):
-            if tid not in visible_track_ids:
+            if tid not in visible_track_ids and (now - track_last_seen[tid]) > WORKER_INFO_PERSIST_SECONDS:
                 track_last_seen.pop(tid, None)
                 track_employee.pop(tid, None)
 
@@ -254,6 +256,18 @@ while True:
                     f"Safety: {safety_pct}%  Status: {status}",
                 ]
 
+                recent_workers[emp["id"]] = {
+                    "name": emp["name"],
+                    "id": emp["id"],
+                    "department": emp.get("department", ""),
+                    "role": emp.get("role", ""),
+                    "has_helmet": has_helmet,
+                    "has_vest": has_vest,
+                    "safety_pct": safety_pct,
+                    "status": status,
+                    "last_seen": now,
+                }
+
                 # Permanent association + continuous reporting:
                 # send to backend + update Excel when status changes or at a slow interval.
                 emp_id = emp["id"]
@@ -306,6 +320,41 @@ while True:
                 cv2.rectangle(frame, (x1, ty - th - 8), (x1 + tw + 10, ty + 4), (0, 0, 0), -1)
                 cv2.putText(frame, line, (x1 + 5, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
                 ty -= (th + 12)
+
+        # Keep recent worker information visible even if the person temporarily
+        # leaves frame or tracking/QR drops for a moment.
+        active_recent_workers = []
+        for emp_id, info in list(recent_workers.items()):
+            if (now - info["last_seen"]) <= WORKER_INFO_PERSIST_SECONDS:
+                active_recent_workers.append(info)
+            else:
+                recent_workers.pop(emp_id, None)
+
+        panel_x = max(10, w - 360)
+        panel_y = 60
+        card_h = 72
+        for i, info in enumerate(sorted(active_recent_workers, key=lambda item: item["last_seen"], reverse=True)[:4]):
+            y1 = panel_y + (i * (card_h + 8))
+            y2 = y1 + card_h
+            card_color = (20, 90, 20) if info["status"] == "READY" else (90, 20, 20)
+            age = max(0, WORKER_INFO_PERSIST_SECONDS - int(now - info["last_seen"]))
+
+            cv2.rectangle(frame, (panel_x, y1), (w - 10, y2), (15, 15, 15), -1)
+            cv2.rectangle(frame, (panel_x, y1), (w - 10, y2), card_color, 2)
+            cv2.putText(frame, f"{info['name']} ({info['id']})", (panel_x + 10, y1 + 22),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
+            cv2.putText(frame, f"{info['department']} | {info['role']}", (panel_x + 10, y1 + 42),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 220), 1)
+            cv2.putText(
+                frame,
+                f"Helmet: {'Yes' if info['has_helmet'] else 'No'}  Vest: {'Yes' if info['has_vest'] else 'No'}  "
+                f"Safety: {info['safety_pct']}%  {info['status']}  [{age}s]",
+                (panel_x + 10, y1 + 62),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.42,
+                (220, 220, 220),
+                1,
+            )
 
         # Also draw QR overlays (helpful for debugging association)
         frame = scanner.draw_qr_overlay_multi(frame, qr_results)
